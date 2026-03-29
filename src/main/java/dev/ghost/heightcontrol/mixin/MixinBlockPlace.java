@@ -17,11 +17,12 @@ import net.minecraft.world.level.Level;
 public abstract class MixinBlockPlace {
 
     /**
-     * Intercept setBlock. If the Y position is above NORMAL_CAP and the XZ is
-     * NOT inside a registered zone, cancel the placement and notify the player.
+     * Intercept setBlock and enforce height caps.
      *
-     * We inject into setBlock(BlockPos, BlockState, int, int) which is the
-     * lowest-level method all block placements funnel through on the server.
+     * Logic:
+     *  - INSIDE a zone with a custom maxY  → deny if y >= zone.maxY
+     *  - INSIDE a zone with no maxY set    → allow (full world height)
+     *  - OUTSIDE all zones                 → deny if y >= HeightZone.NORMAL_CAP
      */
     @Inject(
         method = "setBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;II)Z",
@@ -31,31 +32,41 @@ public abstract class MixinBlockPlace {
     private void heightcontrol_setBlock(BlockPos pos, BlockState state,
                                          int flags, int recursionLeft,
                                          CallbackInfoReturnable<Boolean> cir) {
-        // Only run on the server
         Level self = (Level)(Object)this;
         if (self.isClientSide()) return;
 
         int y = pos.getY();
-        if (y < HeightZone.NORMAL_CAP) return; // below normal cap, always fine
-
         String dim = self.dimension().location().toString();
 
-        // If inside a zone, full height is allowed — do nothing
-        if (ZoneManager.get().isInZone(pos.getX(), pos.getZ(), dim)) return;
+        HeightZone zone = ZoneManager.get().getZoneAt(pos.getX(), pos.getZ(), dim);
 
-        // Outside a zone and above the cap — cancel
-        cir.setReturnValue(false);
+        if (zone != null) {
+            // Inside a zone — only enforce if this zone has a custom cap
+            if (!zone.hasHeightLimit()) return; // no cap, full height allowed
+            if (y < zone.getMaxY()) return;     // below this zone's cap, fine
 
-        // Try to notify the player who caused this (best-effort)
-        if (self instanceof ServerLevel serverLevel) {
-            // Find nearest player to the block position to send feedback
-            ServerPlayer nearest = serverLevel.getNearestPlayer(
-                pos.getX(), pos.getY(), pos.getZ(), 10, false);
-            if (nearest != null) {
-                nearest.sendSystemMessage(Component.literal(
-                    "§cYou can't build above Y " + HeightZone.NORMAL_CAP +
-                    " here. Create a zone with §6/hcshovel§c first."));
-            }
+            // Above the zone's cap — cancel and notify
+            cir.setReturnValue(false);
+            notifyPlayer(self, pos,
+                "§cYou can't build above Y " + zone.getMaxY() +
+                " in zone §6[" + zone.getName() + "]§c.");
+        } else {
+            // Outside all zones — enforce global NORMAL_CAP
+            if (y < HeightZone.NORMAL_CAP) return;
+
+            cir.setReturnValue(false);
+            notifyPlayer(self, pos,
+                "§cYou can't build above Y " + HeightZone.NORMAL_CAP +
+                " here. Use §6/hcshovel§c to define a zone first.");
+        }
+    }
+
+    private static void notifyPlayer(Level level, BlockPos pos, String message) {
+        if (!(level instanceof ServerLevel serverLevel)) return;
+        ServerPlayer nearest = serverLevel.getNearestPlayer(
+            pos.getX(), pos.getY(), pos.getZ(), 10, false);
+        if (nearest != null) {
+            nearest.sendSystemMessage(Component.literal(message));
         }
     }
 }

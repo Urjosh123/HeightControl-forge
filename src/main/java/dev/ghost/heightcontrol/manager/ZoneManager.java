@@ -55,15 +55,30 @@ public class ZoneManager {
         return false;
     }
 
+    /**
+     * Update the height cap of an existing zone.
+     * @return false if the zone doesn't exist.
+     */
+    public boolean setHeight(String name, int maxY) {
+        HeightZone existing = zones.get(name.toLowerCase());
+        if (existing == null) return false;
+        zones.put(name.toLowerCase(), existing.withMaxY(maxY));
+        save();
+        return true;
+    }
+
     public HeightZone get(String name) { return zones.get(name.toLowerCase()); }
     public boolean exists(String name) { return zones.containsKey(name.toLowerCase()); }
     public Collection<HeightZone> all() { return Collections.unmodifiableCollection(zones.values()); }
 
-    /** Returns true if this position is inside a registered zone (full height allowed) */
-    public boolean isInZone(int x, int z, String dim) {
+    /**
+     * Returns the zone at (x, z, dim), or null if not inside any zone.
+     * Use this instead of the old boolean isInZone so callers can read the zone's maxY.
+     */
+    public HeightZone getZoneAt(int x, int z, String dim) {
         for (HeightZone zone : zones.values()) {
-            if (zone.containsXZ(x, z, dim)) return true;
+            if (zone.containsXZ(x, z, dim)) return zone;
         }
-        return false;
+        return null;
     }
 }

@@ -6,10 +6,15 @@ plugins {
 
 version = '1.0.0'
 group = 'dev.ghost.heightcontrol'
-archivesBaseName = 'HeightControl'
+
+base {
+    archivesName = 'HeightControl'
+}
 
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
 }
 
 minecraft {

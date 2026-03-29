@@ -1,6 +1,7 @@
 package dev.ghost.heightcontrol.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.ghost.heightcontrol.manager.SelectionManager;
 import dev.ghost.heightcontrol.manager.ZoneManager;
@@ -49,6 +50,21 @@ public class HeightCommands {
             .then(Commands.argument("name", StringArgumentType.word())
                 .executes(ctx -> zoneInfo(ctx.getSource(),
                     StringArgumentType.getString(ctx, "name")))));
+
+        // /setheight <zone> <y>        — set a custom height cap for a zone
+        // /setheight <zone> reset      — remove the cap (restore unlimited height)
+        dispatcher.register(Commands.literal("setheight")
+            .requires(s -> s.hasPermission(2))
+            .then(Commands.argument("zone", StringArgumentType.word())
+                // /setheight <zone> <number>
+                .then(Commands.argument("height", IntegerArgumentType.integer(-64, 2032))
+                    .executes(ctx -> setHeight(ctx.getSource(),
+                        StringArgumentType.getString(ctx, "zone"),
+                        IntegerArgumentType.getInteger(ctx, "height"))))
+                // /setheight <zone> reset
+                .then(Commands.literal("reset")
+                    .executes(ctx -> resetHeight(ctx.getSource(),
+                        StringArgumentType.getString(ctx, "zone"))))));
     }
 
     // ── /hcshovel ─────────────────────────────────────────────────────────────
@@ -64,7 +80,7 @@ public class HeightCommands {
         wand.getOrCreateTag().putBoolean("Unbreakable", true);
         player.getInventory().add(wand);
         player.sendSystemMessage(Component.literal(
-            "§aWand given! §7Left-click block = Pos1, Right-click block = Pos2, then §b/savezone <name>"));
+            "§aWand given! §7Left-click = Pos1, Right-click = Pos2, then §b/savezone <name>"));
         return 1;
     }
 
@@ -93,7 +109,7 @@ public class HeightCommands {
 
         src.sendSuccess(() -> Component.literal(
             "§aZone §6[" + name + "]§a saved! (" + zone.getSizeX() + "×" + zone.getSizeZ() +
-            " blocks). Players can now build up to the world height limit inside it."), true);
+            " blocks). Full height allowed inside. Use §b/setheight " + name + " <Y>§a to add a cap."), true);
         return 1;
     }
 
@@ -114,12 +130,15 @@ public class HeightCommands {
         if (zones.isEmpty()) {
             src.sendSuccess(() -> Component.literal("§eNo zones saved yet."), false); return 1;
         }
-        src.sendSuccess(() -> Component.literal("§6─── Height Zones (" + zones.size() + ") — full height allowed inside ───"), false);
+        src.sendSuccess(() -> Component.literal(
+            "§6─── Height Zones (" + zones.size() + ") | outside cap: Y " + HeightZone.NORMAL_CAP + " ───"), false);
         for (HeightZone z : zones) {
+            String capStr = z.hasHeightLimit() ? "§ccap Y " + z.getMaxY() : "§aunlimited";
             src.sendSuccess(() -> Component.literal(
                 "  §b" + z.getName() +
                 " §8| §f" + z.getDimension() +
-                " §8| §f" + z.getSizeX() + "×" + z.getSizeZ() + " blocks"), false);
+                " §8| §f" + z.getSizeX() + "×" + z.getSizeZ() +
+                " §8| " + capStr), false);
         }
         return 1;
     }
@@ -129,13 +148,44 @@ public class HeightCommands {
     private static int zoneInfo(CommandSourceStack src, String name) {
         HeightZone z = ZoneManager.get().get(name);
         if (z == null) { src.sendFailure(Component.literal("Zone not found.")); return 0; }
+        String capStr = z.hasHeightLimit()
+            ? "§cY " + z.getMaxY() + " §8(use §b/setheight " + z.getName() + " reset§8 to remove)"
+            : "§aUnlimited §8(use §b/setheight " + z.getName() + " <Y>§8 to add a cap)";
         src.sendSuccess(() -> Component.literal("§6─── Zone: " + z.getName() + " ───"), false);
         src.sendSuccess(() -> Component.literal("  §8Dimension: §f" + z.getDimension()), false);
-        src.sendSuccess(() -> Component.literal("  §8Corner 1: §f(" + z.getMinX() + ", " + z.getMinZ() + ")"), false);
-        src.sendSuccess(() -> Component.literal("  §8Corner 2: §f(" + z.getMaxX() + ", " + z.getMaxZ() + ")"), false);
-        src.sendSuccess(() -> Component.literal("  §8Size: §f" + z.getSizeX() + " × " + z.getSizeZ() + " blocks"), false);
-        src.sendSuccess(() -> Component.literal("  §8Normal cap: §eY " + HeightZone.NORMAL_CAP + " everywhere else"), false);
-        src.sendSuccess(() -> Component.literal("  §8Inside this zone: §efull world height"), false);
+        src.sendSuccess(() -> Component.literal("  §8Corner 1:  §f(" + z.getMinX() + ", " + z.getMinZ() + ")"), false);
+        src.sendSuccess(() -> Component.literal("  §8Corner 2:  §f(" + z.getMaxX() + ", " + z.getMaxZ() + ")"), false);
+        src.sendSuccess(() -> Component.literal("  §8Size:      §f" + z.getSizeX() + " × " + z.getSizeZ() + " blocks"), false);
+        src.sendSuccess(() -> Component.literal("  §8Height cap: " + capStr), false);
+        src.sendSuccess(() -> Component.literal("  §8Outside cap: §eY " + HeightZone.NORMAL_CAP + " (global)"), false);
+        return 1;
+    }
+
+    // ── /setheight ────────────────────────────────────────────────────────────
+
+    private static int setHeight(CommandSourceStack src, String name, int maxY) {
+        if (!ZoneManager.get().exists(name)) {
+            src.sendFailure(Component.literal("Zone §6[" + name + "]§c not found.")); return 0;
+        }
+        if (maxY <= HeightZone.NORMAL_CAP) {
+            src.sendFailure(Component.literal(
+                "§cHeight must be above the global cap (Y " + HeightZone.NORMAL_CAP +
+                "). Got: " + maxY + ".")); return 0;
+        }
+        ZoneManager.get().setHeight(name, maxY);
+        src.sendSuccess(() -> Component.literal(
+            "§aZone §6[" + name + "]§a height cap set to §eY " + maxY +
+            "§a. Use §b/setheight " + name + " reset§a to remove it."), true);
+        return 1;
+    }
+
+    private static int resetHeight(CommandSourceStack src, String name) {
+        if (!ZoneManager.get().exists(name)) {
+            src.sendFailure(Component.literal("Zone §6[" + name + "]§c not found.")); return 0;
+        }
+        ZoneManager.get().setHeight(name, HeightZone.UNLIMITED);
+        src.sendSuccess(() -> Component.literal(
+            "§aZone §6[" + name + "]§a height cap removed — full world height allowed inside."), true);
         return 1;
     }
 }
