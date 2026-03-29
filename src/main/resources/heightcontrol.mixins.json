@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.ghost.heightcontrol.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "refmap": "heightcontrol.refmap.json",
+  "mixins": [
+    "MixinBlockPlace"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -1,0 +1,24 @@
+modLoader = "javafml"
+loaderVersion = "[52,)"
+license = "MIT"
+
+[[mods]]
+modId = "heightcontrol"
+version = "1.0.0"
+displayName = "HeightControl"
+description = "Restricts build height everywhere except named zones. World must be generated at max height (2032)."
+authors = "Ghost"
+
+[[dependencies.heightcontrol]]
+    modId = "forge"
+    mandatory = true
+    versionRange = "[52,)"
+    ordering = "NONE"
+    side = "BOTH"
+
+[[dependencies.heightcontrol]]
+    modId = "minecraft"
+    mandatory = true
+    versionRange = "[1.21.1,1.22)"
+    ordering = "NONE"
+    side = "BOTH"
